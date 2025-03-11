@@ -398,3 +398,8 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+/opencv
+/opencv-4.11.0-windows.exe
+/CV_ImageComparison/image1.png
+/CV_ImageComparison/image2.png
