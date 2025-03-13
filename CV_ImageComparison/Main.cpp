@@ -1,13 +1,57 @@
 #include <opencv2/opencv.hpp>
+#include <type_traits>
 #include <iostream>
+#include <chrono>
+#include <vector>
 
+template<typename T> void calculateMax(const cv::Mat& output, std::vector<double>& max, std::vector<std::vector<std::pair<int, int>>>& max_pos, int channels) {
+    for (int y = 0; y < output.rows; y++) {
+        const T* row_ptr = output.ptr<T>(y);
+        for (int x = 0; x < output.cols; x++) {
+            for (int k = 0; k < channels; k++) {
+                double val = static_cast<double>(row_ptr[x][k]);
+                if (val > max[k]) {
+                    max[k] = val;
+                    max_pos[k].clear();
+                    max_pos[k].emplace_back(y, x);
+                }
+                else if (val == max[k]) {
+                    max_pos[k].emplace_back(y, x);
+                }
+            }
+        }
+    }
+}
 
-int main() {
-    //two image inputs
-    cv::Mat image1 = cv::imread("image1.png", cv::IMREAD_UNCHANGED);
-    cv::Mat image2 = cv::imread("image2.png", cv::IMREAD_UNCHANGED);
+template<typename T> void printPixelValues(const cv::Mat& image1, const cv::Mat& image2, const std::vector<std::vector<std::pair<int, int>>>& max_pos, int channels) {
+    for (int k = 0; k < channels; k++) {
+        std::cout << "Input pixel values at max positions for channel " << k << ":" << std::endl;
+        for (const auto& pos : max_pos[k]) {
+            T p1 = image1.at<T>(pos.first, pos.second);
+            T p2 = image2.at<T>(pos.first, pos.second);
+            std::cout << "Position (" << pos.first << ", " << pos.second << "): ";
+            std::cout << "Input Image1: [";
+            for (int c = 0; c < channels; c++) {
+                std::cout << static_cast<double>(p1[c]) << ' ';
+            }
+            std::cout << "] ";
+            std::cout << "Input Image2: [";
+            for (int c = 0; c < channels; c++) {
+                std::cout << static_cast<double>(p2[c]) << ' ';
+               
+            }
+            std::cout << "]" << std::endl;
+        }
+    }
+}
 
-	
+int main(int argc, char* argv[]) {
+    std::vector<int> formats;
+
+    _putenv("OPENCV_IO_ENABLE_OPENEXR=1");
+
+    cv::Mat image1 = cv::imread(argv[1], cv::IMREAD_UNCHANGED);
+    cv::Mat image2 = cv::imread(argv[2], cv::IMREAD_UNCHANGED);
 
     if (image1.empty()) {
         std::cout << "Could not open or find the image1" << std::endl;
@@ -19,55 +63,31 @@ int main() {
         return -1;
     }
 
-	cv::Mat output;
+    cv::Mat output;
 
-	//computes the absolute difference between the two images
-	cv::absdiff(image1, image2, output);
+    cv::absdiff(image1, image2, output);
 
-
-	
     int channels = output.channels();
     int depth = output.depth();
 
     std::vector<double> max(channels, 0);
-    std::vector<double> avg(channels, 0);
+    std::vector<std::vector<std::pair<int, int>>> max_pos(channels);
 
-	// Calculate max and avg, pixel is Vec3b, Vec3w, or Vec3f based on depth
-    for (int i = 0; i < output.rows; i++) {
-        for (int j = 0; j < output.cols; j++) {
-            if (depth == CV_8U) {
-                cv::Vec3b pixel = output.at<cv::Vec3b>(i, j);
-                for (int k = 0; k < channels; k++) {
-                    avg[k] += pixel[k];
-                    if (pixel[k] > max[k]) {
-                        max[k] = pixel[k];
-                    }
-                }
-            }
-            else if (depth == CV_16U) {
-                cv::Vec3w pixel = output.at<cv::Vec3w>(i, j);
-                for (int k = 0; k < channels; k++) {
-                    avg[k] += pixel[k];
-                    if (pixel[k] > max[k]) {
-                        max[k] = pixel[k];
-                    }
-                }
-            }
-            else if (depth == CV_32F) {
-                cv::Vec3f pixel = output.at<cv::Vec3f>(i, j);
-                for (int k = 0; k < channels; k++) {
-                    avg[k] += pixel[k];
-                    if (pixel[k] > max[k]) {
-                        max[k] = pixel[k];
-                    }
-                }
-            }
-        }
+    if (depth == CV_8U) {
+        calculateMax<cv::Vec3b>(output, max, max_pos, channels);
+        printPixelValues<cv::Vec3b>(image1, image2, max_pos, channels);
     }
-	for (int i = 0; i < channels; i++) {
-		avg[i] /= output.rows * output.cols;
-	}
+    else if (depth == CV_16U) {
+        calculateMax<cv::Vec3w>(output, max, max_pos, channels);
+        printPixelValues<cv::Vec3w>(image1, image2, max_pos, channels);
+    }
+    else if (depth == CV_32F) {
+        calculateMax<cv::Vec3f>(output, max, max_pos, channels);
+        printPixelValues<cv::Vec3f>(image1, image2, max_pos, channels);
+    }
 
+    cv::Scalar mean_values = cv::mean(output);
+    std::cout << "Mean: " << mean_values << std::endl;
 
     std::cout << "Max: ";
     for (int i = 0; i < channels; i++) {
@@ -75,31 +95,15 @@ int main() {
     }
     std::cout << std::endl;
 
-    std::cout << "Avg: ";
-    for (int i = 0; i < channels; i++) {
-        std::cout << avg[i] << " ";
+    for (int k = 0; k < channels; k++) {
+        std::cout << "Max positions for channel " << k << ": ";
+        for (const auto& pos : max_pos[k]) {
+            std::cout << "(" << pos.first << ", " << pos.second << ") ";
+        }
+        std::cout << std::endl;
     }
-    std::cout << std::endl;
 
-	
-	/*int t = 0;
-	
-        if (output.depth() == CV_8U) {
-        t = 255;
-        }
-        else if (output.depth() == CV_16U) {
-        t = 65535;
-        }
-        else if (output.depth() == CV_32F) {
-        t = 1;
-        }
-		
-	
-	std::cout << t << std::endl;*/
-	
-     
-
-	cv::imshow("Display Window", output);
+    cv::imshow("Display Window", output);
     cv::waitKey(0);
 
     return 0;
